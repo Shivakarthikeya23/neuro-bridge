@@ -86,9 +86,9 @@ async def analyze_buffer(payload: BufferPayload):
         # Build movement summary
         movement_summary = build_movement_summary(pattern)
         
-        # Get intent interpretation from GPT
-        from services.gpt_agent import generate_intent
-        intent = await generate_intent(movement_summary)
+        # Get intent interpretation using the new function
+        from services.gpt_agent import generate_intent_from_gesture_summary
+        intent = await generate_intent_from_gesture_summary(movement_summary)
         
         return {"intent": intent}
         
