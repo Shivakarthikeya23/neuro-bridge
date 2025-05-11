@@ -3,13 +3,14 @@
 import React, { useCallback, useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import { motion } from 'framer-motion';
+import { RefObject } from 'react';
 
 interface WebcamCaptureProps {
   onBufferCapture: (frames: string[]) => void;
+  webcamRef: RefObject<Webcam | null>;  // Update this type to match the parent
 }
 
-const WebcamCapture = ({ onBufferCapture }: WebcamCaptureProps) => {
-  const webcamRef = useRef<Webcam>(null);
+const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRef }) => {
   const [isRecording, setIsRecording] = useState(false);
   const frameBufferRef = useRef<string[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);

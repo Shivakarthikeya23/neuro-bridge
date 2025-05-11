@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import gesture, intent, buffer_analysis
+from routes import gesture, intent, buffer_analysis, image_caption
 
 app = FastAPI()
 
@@ -17,3 +17,4 @@ app.add_middleware(
 app.include_router(gesture.router, prefix="/api")
 app.include_router(intent.router, prefix="/api")
 app.include_router(buffer_analysis.router, prefix="/api")
+app.include_router(image_caption.router, prefix="/api")
