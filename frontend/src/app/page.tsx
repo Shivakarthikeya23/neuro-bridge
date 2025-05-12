@@ -13,13 +13,7 @@ declare global {
 }
 
 interface SpeechRecognitionEvent {
-  results: {
-    [index: number]: {
-      [index: number]: {
-        transcript: string;
-      };
-    };
-  };
+  results: SpeechRecognitionResultList;
 }
 
 interface IntentResponse {
@@ -37,12 +31,12 @@ export default function Home() {
   const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef<boolean>(true);
 
-  // Cleanup function for speech recognition
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
+      window.speechSynthesis.cancel();
     };
   }, []);
 
@@ -62,10 +56,7 @@ export default function Home() {
       const data: IntentResponse = await response.json();
       setIntentMessage(data.intent);
       
-      // Automatically speak the intent
       speak(data.intent);
-      
-      // Add AI response to chat
       setChatMessages(prev => [...prev, { type: 'ai', text: data.intent }]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to analyze gesture sequence';
@@ -87,7 +78,6 @@ export default function Home() {
       setError('Failed to speak the message');
     };
     
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, [speaking]);
@@ -109,6 +99,10 @@ export default function Home() {
       } else if (commandLower.includes('describe')) {
         const frame = webcamRef.current?.getScreenshot();
         if (frame) {
+          const initialResponse = "Analyzing the image...";
+          speak(initialResponse);
+          setChatMessages(prev => [...prev, { type: 'ai', text: initialResponse }]);
+
           const response = await fetch('http://localhost:8000/api/describe-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -121,9 +115,12 @@ export default function Home() {
           speak(data.description);
           setChatMessages(prev => [...prev, { type: 'ai', text: data.description }]);
         }
+      } else if (commandLower.includes('hello') || commandLower.includes('hi')) {
+        const response = "Hello! I can help you with gestures, or I can describe what I see. Just ask me to 'describe' or make a gesture.";
+        speak(response);
+        setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
       } else {
-        // Handle other commands...
-        const response = "I heard you say: " + command;
+        const response = "I heard you say: " + command + ". You can ask me to 'describe' what I see, or say 'stop listening' to end our conversation.";
         speak(response);
         setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
       }
@@ -148,13 +145,18 @@ export default function Home() {
 
       recognition.onstart = () => {
         setIsListening(true);
-        setChatMessages(prev => [...prev, { type: 'ai', text: "I'm listening..." }]);
+        setChatMessages(prev => [...prev, { type: 'ai', text: "I'm listening... You can say 'describe' to get an image description, or 'stop listening' to end the conversation." }]);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
         if (shouldListenRef.current) {
-          recognition.start();
+          try {
+            recognition.start();
+          } catch (error) {
+            setIsListening(false);
+          }
+        } else {
+          setIsListening(false);
         }
       };
 
@@ -167,8 +169,12 @@ export default function Home() {
       };
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const command = event.results[event.results.length - 1][0].transcript;
-        handleCommand(command);
+        const results = event.results;
+        const lastResult = results[results.length - 1];
+        if (lastResult && lastResult[0]) {
+          const command = lastResult[0].transcript;
+          handleCommand(command);
+        }
       };
 
       recognition.start();
