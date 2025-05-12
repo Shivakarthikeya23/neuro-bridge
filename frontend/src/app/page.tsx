@@ -18,6 +18,7 @@ interface SpeechRecognitionEvent {
 
 interface IntentResponse {
   intent: string;
+  description?: string;
 }
 
 export default function Home() {
@@ -31,6 +32,7 @@ export default function Home() {
   const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef<boolean>(true);
 
+  // Cleanup function for speech synthesis and recognition
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
@@ -41,6 +43,8 @@ export default function Home() {
   }, []);
 
   const handleBufferCapture = async (frames: string[]) => {
+    if (!frames.length) return;
+    
     setIsProcessing(true);
     setError(null);
 
@@ -56,6 +60,7 @@ export default function Home() {
       const data: IntentResponse = await response.json();
       setIntentMessage(data.intent);
       
+      // Automatically speak the interpreted intent
       speak(data.intent);
       setChatMessages(prev => [...prev, { type: 'ai', text: data.intent }]);
     } catch (err) {
@@ -69,16 +74,19 @@ export default function Home() {
 
   const speak = useCallback((text: string) => {
     if (!text || speaking) return;
-    setSpeaking(true);
     
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    setSpeaking(true);
     const utterance = new SpeechSynthesisUtterance(text);
+    
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = () => {
       setSpeaking(false);
       setError('Failed to speak the message');
     };
     
-    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, [speaking]);
 
@@ -103,20 +111,34 @@ export default function Home() {
           speak(initialResponse);
           setChatMessages(prev => [...prev, { type: 'ai', text: initialResponse }]);
 
-          const response = await fetch('http://localhost:8000/api/describe-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: frame }),
-          });
+          try {
+            const response = await fetch('http://localhost:8000/api/describe-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ image: frame }),
+            });
 
-          if (!response.ok) throw new Error('Failed to describe image');
+            if (!response.ok) throw new Error('Failed to describe image');
 
-          const data = await response.json();
-          speak(data.description);
-          setChatMessages(prev => [...prev, { type: 'ai', text: data.description }]);
+            const data = await response.json();
+            if (data.description) {
+              speak(data.description);
+              setChatMessages(prev => [...prev, { type: 'ai', text: data.description }]);
+            } else {
+              throw new Error('No description received');
+            }
+          } catch (error) {
+            const errorMessage = "I'm sorry, I couldn't describe the image at the moment.";
+            speak(errorMessage);
+            setChatMessages(prev => [...prev, { type: 'ai', text: errorMessage }]);
+          }
         }
       } else if (commandLower.includes('hello') || commandLower.includes('hi')) {
         const response = "Hello! I can help you with gestures, or I can describe what I see. Just ask me to 'describe' or make a gesture.";
+        speak(response);
+        setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
+      } else if (commandLower.includes('how are you')) {
+        const response = "I'm doing well! I can help you with gestures or describe what I see. What would you like me to do?";
         speak(response);
         setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
       } else {
@@ -145,7 +167,9 @@ export default function Home() {
 
       recognition.onstart = () => {
         setIsListening(true);
-        setChatMessages(prev => [...prev, { type: 'ai', text: "I'm listening... You can say 'describe' to get an image description, or 'stop listening' to end the conversation." }]);
+        const welcomeMessage = "I'm listening... You can say 'describe' to get an image description, or 'stop listening' to end the conversation.";
+        setChatMessages(prev => [...prev, { type: 'ai', text: welcomeMessage }]);
+        speak(welcomeMessage);
       };
 
       recognition.onend = () => {
@@ -172,8 +196,10 @@ export default function Home() {
         const results = event.results;
         const lastResult = results[results.length - 1];
         if (lastResult && lastResult[0]) {
-          const command = lastResult[0].transcript;
-          handleCommand(command);
+          const transcript = lastResult[0].transcript.trim();
+          if (transcript) {
+            handleCommand(transcript);
+          }
         }
       };
 

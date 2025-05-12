@@ -22,7 +22,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
     frameBufferRef.current = [];
     let frameCount = 0;
     
-    // Increased frame rate and reduced duration for better responsiveness
+    // Increased frame rate for better gesture detection
     recordingIntervalRef.current = setInterval(() => {
       const frame = webcamRef.current?.getScreenshot();
       if (frame) {
@@ -40,7 +40,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
       }
     }, 100); // 10 FPS for smoother capture
     
-    // Add safety timeout to stop recording
+    // Safety timeout to ensure recording stops
     setTimeout(() => {
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
@@ -49,7 +49,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
           onBufferCapture(frameBufferRef.current);
         }
       }
-    }, 2000); // Ensure recording stops after 2 seconds
+    }, 2000);
   }, [isRecording, onBufferCapture, webcamRef]);
 
   // Cleanup on unmount
@@ -77,6 +77,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
           width: 640,
           height: 480,
           facingMode: "user",
+          frameRate: 30
         }}
       />
       <motion.button
