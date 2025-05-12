@@ -7,7 +7,7 @@ import { RefObject } from 'react';
 
 interface WebcamCaptureProps {
   onBufferCapture: (frames: string[]) => void;
-  webcamRef: RefObject<Webcam | null>;  // Update this type to match the parent
+  webcamRef: RefObject<Webcam | null>;
 }
 
 const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRef }) => {
@@ -22,13 +22,15 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
     frameBufferRef.current = [];
     let frameCount = 0;
     
+    // Increased frame rate and reduced duration for better responsiveness
     recordingIntervalRef.current = setInterval(() => {
       const frame = webcamRef.current?.getScreenshot();
       if (frame) {
         frameBufferRef.current.push(frame);
         frameCount++;
         
-        if (frameCount >= 15) { // Capture 15 frames
+        // Capture 10 frames in 1 second for faster response
+        if (frameCount >= 10) {
           if (recordingIntervalRef.current) {
             clearInterval(recordingIntervalRef.current);
           }
@@ -36,8 +38,28 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
           onBufferCapture(frameBufferRef.current);
         }
       }
-    }, 133); // ~7.5 FPS to get 15 frames in 2 seconds
-  }, [isRecording, onBufferCapture]);
+    }, 100); // 10 FPS for smoother capture
+    
+    // Add safety timeout to stop recording
+    setTimeout(() => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        setIsRecording(false);
+        if (frameBufferRef.current.length > 0) {
+          onBufferCapture(frameBufferRef.current);
+        }
+      }
+    }, 2000); // Ensure recording stops after 2 seconds
+  }, [isRecording, onBufferCapture, webcamRef]);
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    };
+  }, []);
 
   return (
     <motion.div
@@ -51,6 +73,11 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onBufferCapture, webcamRe
         audio={false}
         screenshotFormat="image/jpeg"
         className="rounded-lg shadow-lg w-full max-w-2xl"
+        videoConstraints={{
+          width: 640,
+          height: 480,
+          facingMode: "user",
+        }}
       />
       <motion.button
         whileHover={{ scale: 1.05 }}

@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import WebcamCapture from '@/components/WebcamCapture';
 import Webcam from 'react-webcam';
 
-// Fix TypeScript error for SpeechRecognition
 declare global {
   interface Window {
     webkitSpeechRecognition: any;
@@ -28,7 +27,6 @@ interface IntentResponse {
 }
 
 export default function Home() {
-  // Add new state for chat messages
   const [chatMessages, setChatMessages] = useState<Array<{ type: 'user' | 'ai'; text: string }>>([]);
   const webcamRef = useRef<Webcam>(null);
   const [intentMessage, setIntentMessage] = useState<string>('');
@@ -36,10 +34,17 @@ export default function Home() {
   const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
-  const [voiceResponse, setVoiceResponse] = useState<string>('');
   const recognitionRef = useRef<any>(null);
-  const shouldListenRef = useRef<boolean>(true); // add this
+  const shouldListenRef = useRef<boolean>(true);
 
+  // Cleanup function for speech recognition
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
 
   const handleBufferCapture = async (frames: string[]) => {
     setIsProcessing(true);
@@ -56,59 +61,54 @@ export default function Home() {
 
       const data: IntentResponse = await response.json();
       setIntentMessage(data.intent);
+      
+      // Automatically speak the intent
+      speak(data.intent);
+      
+      // Add AI response to chat
+      setChatMessages(prev => [...prev, { type: 'ai', text: data.intent }]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to analyze gesture sequence');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to analyze gesture sequence';
+      setError(errorMessage);
+      setChatMessages(prev => [...prev, { type: 'ai', text: `Error: ${errorMessage}` }]);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const speak = (text: string) => {
+  const speak = useCallback((text: string) => {
     if (!text || speaking) return;
-    setVoiceResponse(text);
     setSpeaking(true);
+    
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => {
+      setSpeaking(false);
+      setError('Failed to speak the message');
+    };
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-  };
+  }, [speaking]);
 
   const handleCommand = useCallback(async (command: string) => {
-    const commandLower = command.toLowerCase();
+    if (!command.trim()) return;
     
-    // Add user message to chat
+    const commandLower = command.toLowerCase();
     setChatMessages(prev => [...prev, { type: 'user', text: command }]);
 
-    if (commandLower.includes('stop listening')) {
-      shouldListenRef.current = false;
-      recognitionRef.current?.stop();
-      setIsListening(false);  // Make sure to update listening state
-      const response = "Okay, I'm here if you need me. Just click the Talk to AI button when you want to chat again.";
-      speak(response);
-      setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
-      return;
-    } else if (commandLower.includes('how are you')) {
-      const response = "I'm doing well, thank you for asking! How can I assist you today?";
-      speak(response);
-      setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
-    } else if (commandLower.includes('capture')) {
-      const frame = webcamRef.current?.getScreenshot();
-      if (frame) {
-        const link = document.createElement('a');
-        link.href = frame;
-        link.download = `capture-${Date.now()}.jpg`;
-        link.click();
-        const response = "Done! I've saved the image for you.";
+    try {
+      if (commandLower.includes('stop listening')) {
+        shouldListenRef.current = false;
+        recognitionRef.current?.stop();
+        setIsListening(false);
+        const response = "Okay, I'll stop listening. Click the Talk to AI button when you want to chat again.";
         speak(response);
         setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
-      }
-    } else if (commandLower.includes('describe')) {
-      const frame = webcamRef.current?.getScreenshot();
-      if (frame) {
-        try {
-          const initialResponse = 'Let me take a look...';
-          speak(initialResponse);
-          setChatMessages(prev => [...prev, { type: 'ai', text: initialResponse }]);
-          
+      } else if (commandLower.includes('describe')) {
+        const frame = webcamRef.current?.getScreenshot();
+        if (frame) {
           const response = await fetch('http://localhost:8000/api/describe-image', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -120,69 +120,65 @@ export default function Home() {
           const data = await response.json();
           speak(data.description);
           setChatMessages(prev => [...prev, { type: 'ai', text: data.description }]);
-        } catch (err) {
-          const errorResponse = 'Sorry, I could not describe the image at the moment.';
-          speak(errorResponse);
-          setChatMessages(prev => [...prev, { type: 'ai', text: errorResponse }]);
         }
+      } else {
+        // Handle other commands...
+        const response = "I heard you say: " + command;
+        speak(response);
+        setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
       }
-    } else if (commandLower.includes('hello') || commandLower.includes('greet')) {
-      const response = "Hello! I'm your AI assistant. You can say things like 'capture the image' or 'describe'. How can I help you today?";
-      speak(response);
-      setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
-    } else {
-      const response = "I'm not sure I understood that. Could you please try rephrasing your request?";
-      speak(response);
-      setChatMessages(prev => [...prev, { type: 'ai', text: response }]);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMessage);
+      setChatMessages(prev => [...prev, { type: 'ai', text: `Error: ${errorMessage}` }]);
     }
-  }, []);
+  }, [speak]);
 
   const startListening = useCallback(() => {
     try {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
       if (!SpeechRecognition) {
-        speak('Speech recognition is not supported in your browser.');
-        return;
+        throw new Error('Speech recognition is not supported in your browser.');
       }
 
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = false;
+      shouldListenRef.current = true;
 
-      recognition.onstart = () => setIsListening(true);
+      recognition.onstart = () => {
+        setIsListening(true);
+        setChatMessages(prev => [...prev, { type: 'ai', text: "I'm listening..." }]);
+      };
+
       recognition.onend = () => {
         setIsListening(false);
         if (shouldListenRef.current) {
           recognition.start();
         }
-        if (!isListening) {
-          // If we're not supposed to be listening, don't restart
-          recognitionRef.current = null;
-          return;
-        }
-        setIsListening(false);
-        // Only restart if we're supposed to be listening
-        if (recognitionRef.current) {
-          recognition.start();
-        }
       };
-      recognition.onerror = () => {
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
         setIsListening(false);
-        speak('Sorry, I could not understand that.');
+        const errorMessage = 'Sorry, there was an error with speech recognition.';
+        speak(errorMessage);
+        setChatMessages(prev => [...prev, { type: 'ai', text: errorMessage }]);
       };
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const command = event.results[0][0].transcript;
+        const command = event.results[event.results.length - 1][0].transcript;
         handleCommand(command);
       };
 
       recognition.start();
       recognitionRef.current = recognition;
     } catch (err) {
-      speak('Failed to start voice recognition.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start voice recognition';
+      setError(errorMessage);
+      setChatMessages(prev => [...prev, { type: 'ai', text: `Error: ${errorMessage}` }]);
     }
-  }, [handleCommand, isListening]);
+  }, [handleCommand]);
 
   return (
     <div className="min-h-screen p-4 md:p-8 bg-gray-100">
@@ -195,7 +191,7 @@ export default function Home() {
             <WebcamCapture onBufferCapture={handleBufferCapture} webcamRef={webcamRef} />
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col gap-4 text-black">
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex flex-col gap-4">
             {isProcessing && (
               <div className="flex items-center justify-center p-6 bg-white rounded-lg shadow-md">
                 <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-3" />
@@ -214,7 +210,7 @@ export default function Home() {
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={() => speak(intentMessage)}
-                    disabled={speaking || !intentMessage}
+                    disabled={speaking}
                     className={`px-4 py-2 ${speaking ? 'bg-gray-400' : 'bg-purple-600 hover:bg-purple-700'} text-white rounded-lg shadow-md transition-colors`}
                   >
                     {speaking ? 'Speaking...' : '🔊 Speak'}
@@ -228,46 +224,46 @@ export default function Home() {
                 {error}
               </motion.div>
             )}
-          </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={startListening}
-              disabled={isListening}
-              className={`w-full px-6 py-3 ${isListening ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg shadow-md transition-colors flex items-center justify-center gap-2`}
-            >
-              {isListening ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Listening...
-                </>
-              ) : (
-                <>🎙️ Talk to AI</>
-              )}
-            </motion.button>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={startListening}
+                disabled={isListening}
+                className={`w-full px-6 py-3 ${isListening ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white rounded-lg shadow-md transition-colors flex items-center justify-center gap-2`}
+              >
+                {isListening ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Listening...
+                  </>
+                ) : (
+                  <>🎙️ Talk to AI</>
+                )}
+              </motion.button>
 
-            <div className="bg-white rounded-lg shadow-md p-4 max-h-96 overflow-y-auto">
-              <div className="space-y-4">
-                {chatMessages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
+              <div className="bg-white rounded-lg shadow-md p-4 max-h-96 overflow-y-auto">
+                <div className="space-y-4">
+                  {chatMessages.map((message, index) => (
                     <div
-                      className={`max-w-[80%] rounded-lg p-3 ${
-                        message.type === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-black'
-                      }`}
+                      key={index}
+                      className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <p>{message.text}</p>
+                      <div
+                        className={`max-w-[80%] rounded-lg p-3 ${
+                          message.type === 'user'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-black'
+                        }`}
+                      >
+                        <p>{message.text}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            </motion.div>
           </motion.div>
         </div>
       </div>
